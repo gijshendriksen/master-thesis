@@ -1,4 +1,5 @@
-from collections import namedtuple
+from collections import defaultdict, namedtuple
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -65,16 +66,18 @@ def get_dataset(config: wandb.Config) -> SWDEDataModule:
                                       split_attributes=extractor_config.split_attributes,
                                       max_length=config.context_size, num_workers=NUM_PREPROCESS_WORKERS)
 
-        dfs = {
-            split: pd.concat([
-                pd.read_csv(extractor.process_directory(split, config.vertical, website))
-                for website in os.listdir(data_path / split / config.vertical)
-            ])
-            for split in ['train', 'val', 'test']
-        }
+        data = defaultdict(list)
 
-        for split, split_df in dfs.items():
-            split_df.to_csv(output_path / f'{split}.csv', index=False)
+        for split in ['train', 'val', 'test']:
+            for website in os.listdir(data_path / split / config.vertical):
+                filename = extractor.process_directory(split, config.vertical, website)
+
+                with open(filename) as _file:
+                    data[split].extend(json.load(_file))
+
+        for split, split_data in data.items():
+            with open(output_path / f'{split}.json', 'w') as _file:
+                json.dump(split_data, _file)
 
         models = {
             'bert': {
@@ -91,9 +94,9 @@ def get_dataset(config: wandb.Config) -> SWDEDataModule:
 
         dataset = SWDEDataModule(model_config['model_version'],
                                  max_length=config.context_size,
-                                 train_files=[output_path / 'train.csv'],
-                                 val_files=[output_path / 'val.csv'],
-                                 test_files=[output_path / 'test.csv'],
+                                 train_files=[output_path / 'train.json'],
+                                 val_files=[output_path / 'val.json'],
+                                 test_files=[output_path / 'test.json'],
                                  batch_size=model_config['mini_batch_size'],
                                  num_workers=config.num_workers,
                                  remove_null=config.remove_null)
@@ -111,7 +114,7 @@ def perform_evaluation(trainer: BaseTrainer, dataset: SWDEDataModule, config: wa
     evaluator = Evaluator(metrics={'f1': compute_f1, 'em': compute_exact})
 
     for split in config.get('evaluation_datasets', ['train', 'val', 'test']):
-        dataloader = tqdm(eval_loaders[split](), desc=f'Evaluating {split}', leave=False)
+        dataloader = tqdm(eval_loaders[split](), desc=f'Evaluating {split}')
         predictions = trainer.predict_documents(dataloader, method=config.get('evaluation_method', 'greedy'))
         results = evaluator.evaluate_documents(predictions)
 

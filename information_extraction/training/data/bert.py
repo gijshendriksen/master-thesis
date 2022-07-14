@@ -1,8 +1,9 @@
-from collections import namedtuple
 import re
-from typing import List
+from typing import Dict, List
 
 import torch
+from torch.nn.utils.rnn import pad_sequence
+from sentence_transformers import SentenceTransformer
 
 from information_extraction.dtypes import BertBatch
 from information_extraction.training.data import BaseDataset
@@ -12,6 +13,8 @@ from information_extraction.data.metrics import normalize_answer, normalize_with
 class BertDataset(BaseDataset):
     start_char_positions: List[int]
     end_char_positions: List[int]
+    encoded_ancestors: Dict[str, torch.Tensor]
+    empty_encoding: torch.Tensor
 
     def prepare_inputs(self):
         self.start_char_positions = []
@@ -29,7 +32,7 @@ class BertDataset(BaseDataset):
                 continue
 
             # We find the normalized answer in the normalized context, and then map that back to the original sequence
-            normalized_context, char_mapping = normalize_with_mapping(context)
+            normalized_context, char_mapping = normalize_with_mapping(' '.join(context))
 
             match = re.search(f'\\b{re.escape(normalized_target)}\\b', normalized_context)
 
@@ -46,6 +49,7 @@ class BertDataset(BaseDataset):
         if self.remove_null:
             self.inputs = [self.inputs[i] for i in not_null_indices]
             self.targets = [self.targets[i] for i in not_null_indices]
+            self.ancestors = [self.ancestors[i] for i in not_null_indices]
             self.features = [self.features[i] for i in not_null_indices]
             self.start_char_positions = [self.start_char_positions[i] for i in not_null_indices]
             self.end_char_positions = [self.end_char_positions[i] for i in not_null_indices]
@@ -53,15 +57,28 @@ class BertDataset(BaseDataset):
             print(f'Warning: BertDataset found {num_not_found}/{len(self.inputs)} samples '
                   f'where the context does not contain the answer!')
 
+        model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        distinct_ancestors = list(set(x for a in self.ancestors for x in a))
+        encoded_ancestors = model.encode(distinct_ancestors, device=device, convert_to_numpy=True,
+                                         show_progress_bar=True)
+
+        self.encoded_ancestors = {
+            ancestor: torch.Tensor(encoding)
+            for ancestor, encoding in zip(distinct_ancestors, encoded_ancestors)
+        }
+        self.empty_encoding = torch.zeros(encoded_ancestors[0].shape)
+
     def __getitem__(self, idx: List[int]) -> BertBatch:
         docs = [self.docs[i] for i in idx]
         inputs = [self.inputs[i] for i in idx]
+        ancestors = [self.ancestors[i] for i in idx]
         targets = [self.targets[i] for i in idx]
         features = [self.features[i] for i in idx]
         start_char_positions = [self.start_char_positions[i] for i in idx]
         end_char_positions = [self.end_char_positions[i] for i in idx]
 
-        encoding = self.tokenizer(features, inputs, **self.tokenize_kwargs)
+        encoding = self.tokenizer([[f] for f in features], inputs, **self.tokenize_kwargs)
 
         start_positions = []
         end_positions = []
@@ -75,16 +92,46 @@ class BertDataset(BaseDataset):
                 start_pos = encoding.char_to_token(i, start_char, sequence_index=1)
                 end_pos = encoding.char_to_token(i, end_char, sequence_index=1)
 
+                start_word = encoding.char_to_word(i, start_char, 1)
+                end_word = encoding.char_to_word(i, end_char, 1)
+
                 if start_pos is not None and end_pos is not None:
                     start_positions.append(start_pos)
                     end_positions.append(end_pos)
+
+                    sentence = self.tokenizer.decode(encoding.input_ids[i, start_pos:end_pos + 1])
+
+                    if 'offered' in sentence:
+                        print(inputs[i])
+                        print('CHECK SPAN:', targets[i], '-', start_pos, end_pos,
+                              sentence, '-',
+                              ' '.join(inputs[i])[start_char:end_char+1], '-',
+                              inputs[i][start_word:end_word + 1])
+                        break
+
                 else:
                     start_positions.append(0)
                     end_positions.append(0)
 
+        encoded_ancestors = []
+        for i, ancestor in enumerate(ancestors):
+            current_ancestors = []
+            for j, token in enumerate(encoding.input_ids[i]):
+                word_index = encoding.token_to_word(i, j)
+                if encoding.token_to_sequence(i, j) == 1 and word_index is not None:
+                    # print(self.tokenizer.convert_ids_to_tokens([token])[0], word_index)
+                    current_ancestors.append(self.encoded_ancestors[ancestor[word_index]])
+                else:
+                    current_ancestors.append(self.empty_encoding)
+
+            encoded_ancestors.append(torch.stack(current_ancestors))
+
+        encoded_ancestors = pad_sequence(encoded_ancestors, batch_first=True)
+
         return BertBatch(
             docs,
             inputs,
+            encoded_ancestors,
             targets,
             features,
             encoding.input_ids,
