@@ -12,7 +12,7 @@ from transformers import PreTrainedTokenizer
 class BaseDataset(Dataset, ABC):
     docs: List[str] = []
     inputs: List[str] = []
-    ancestors: List[str] = []
+    ancestors: List[List[Union[str, Optional[int]]]] = []
     targets: List[str] = []
     features: List[str] = []
 

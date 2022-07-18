@@ -1,4 +1,5 @@
-from typing import Dict, List
+from typing import List
+import uuid
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -12,9 +13,8 @@ from information_extraction.config import DATA_DIR
 
 class BertDataset(BaseDataset):
     word_indices: List[int]
-    embedding_mapping: Dict[str, int]
     empty_embedding: torch.Tensor
-    embedding_location = DATA_DIR / 'embeddings.pickle'
+    embedding_location: str
 
     def prepare_inputs(self):
         self.word_indices = []
@@ -53,8 +53,14 @@ class BertDataset(BaseDataset):
         encoded_ancestors = torch.as_tensor(model.encode(distinct_ancestors, device=device, convert_to_numpy=True,
                                             show_progress_bar=True)).repeat(1, 2)
 
-        self.embedding_mapping = {a: i for i, a in enumerate(distinct_ancestors)}
+        embedding_mapping = {a: i for i, a in enumerate(distinct_ancestors)}
+        self.ancestors = [
+            [embedding_mapping[ancestors] if ancestors else None for ancestors in ancestors_per_word]
+            for ancestors_per_word in self.ancestors
+        ]
         self.empty_embedding = torch.zeros_like(encoded_ancestors[0])
+
+        self.embedding_location = str(DATA_DIR / f'{uuid.uuid4().hex}.pickle')
         torch.save(encoded_ancestors, self.embedding_location)
 
     def __getitem__(self, idx: List[int]) -> BertBatch:
@@ -95,7 +101,9 @@ class BertDataset(BaseDataset):
 
                 if encoding.token_to_sequence(batch_index, word_index) == 1 and word_index is not None:
                     current_embeddings.append(
-                        embedding_matrix[self.embedding_mapping[ancestors_per_word[word_index]]]
+                        embedding_matrix[ancestors_per_word[word_index]]
+                        if ancestors_per_word[word_index] is not None
+                        else self.empty_embedding
                     )
                 else:
                     current_embeddings.append(self.empty_embedding)
