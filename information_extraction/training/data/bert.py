@@ -1,4 +1,3 @@
-import re
 from typing import Dict, List
 
 import torch
@@ -7,22 +6,18 @@ from sentence_transformers import SentenceTransformer
 
 from information_extraction.dtypes import BertBatch
 from information_extraction.training.data import BaseDataset
-from information_extraction.data.metrics import normalize_answer, normalize_with_mapping
+from information_extraction.data.metrics import normalize_answer
 from information_extraction.config import DATA_DIR
-
-from mmappickle import mmapdict
 
 
 class BertDataset(BaseDataset):
     word_indices: List[int]
-    html_embeddings: mmapdict
+    embedding_mapping: Dict[str, int]
     empty_embedding: torch.Tensor
-
-    max_ancestor_length = 256
+    embedding_location = DATA_DIR / 'embeddings.pickle'
 
     def prepare_inputs(self):
         self.word_indices = []
-        self.html_embeddings = mmapdict(str(DATA_DIR / 'html_embeddings.mmdpickle'))
 
         not_null_indices = []
         num_not_found = 0
@@ -54,14 +49,13 @@ class BertDataset(BaseDataset):
 
         model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        distinct_ancestors = list(set(x[:self.max_ancestor_length] for a in self.ancestors for x in a))
+        distinct_ancestors = list(set(x for a in self.ancestors for x in a))
         encoded_ancestors = torch.as_tensor(model.encode(distinct_ancestors, device=device, convert_to_numpy=True,
                                             show_progress_bar=True)).repeat(1, 2)
 
-        for ancestor, encoding in zip(distinct_ancestors, encoded_ancestors):
-            self.html_embeddings[ancestor] = encoding
-
+        self.embedding_mapping = {a: i for i, a in enumerate(distinct_ancestors)}
         self.empty_embedding = torch.zeros_like(encoded_ancestors[0])
+        torch.save(encoded_ancestors, self.embedding_location)
 
     def __getitem__(self, idx: List[int]) -> BertBatch:
         docs = [self.docs[i] for i in idx]
@@ -91,8 +85,9 @@ class BertDataset(BaseDataset):
                     start_positions.append(0)
                     end_positions.append(0)
 
+        embedding_matrix = torch.load(self.embedding_location)
         html_embeddings = []
-        for batch_index, ancestors_per_token in enumerate(ancestors):
+        for batch_index, ancestors_per_word in enumerate(ancestors):
             current_embeddings = []
 
             for token_index in range(encoding.input_ids.shape[1]):
@@ -100,7 +95,7 @@ class BertDataset(BaseDataset):
 
                 if encoding.token_to_sequence(batch_index, word_index) == 1 and word_index is not None:
                     current_embeddings.append(
-                        self.html_embeddings[ancestors_per_token[word_index][:self.max_ancestor_length]]
+                        embedding_matrix[self.embedding_mapping[ancestors_per_word[word_index]]]
                     )
                 else:
                     current_embeddings.append(self.empty_embedding)
