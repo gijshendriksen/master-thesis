@@ -1,6 +1,6 @@
-# Extracting Structured Web Content using Deep Neural Language Models
+# An Analysis of Information Extraction Models and Their Evaluation
 
-This repository contains the source code used for the experiments in my Master thesis: [Extracting Structured Web Content using Deep Neural Language Models](https://www.ru.nl/publish/pages/769526/gijs_hendriksen.pdf). The same scripts were also used to generate the numbers in the paper "An Analysis of Information Extraction Models and Their Evaluation".
+This repository contains the source code used for the experiments in the paper "An Analysis of Information Extraction Models and Their Evaluation".
 
 ## Overview
 
@@ -94,11 +94,11 @@ This initializes the sweep, and gives you a `wandb agent` command to start agent
 Finally, we can analyse the results of the experiments we just performed, using the scripts in `scripts/analysis`. Each of the experiments/sweeps in `sweeps/final` has a dedicated analysis script to generate the tables published in our research. In order to use the correct experimental results, you can:
 
 1. Change the `SWEEP_ID` in each analysis script to match the sweep ID in your own W&B workspace; or
-2. Change the `WANDB_PROJECT` in `information_extraction/config.py` to `gijshendriksen/information_extraction`, to use the values from our own final experiments.
+2. Change the `WANDB_PROJECT` in `information_extraction/config.py` to `REDACTED/information_extraction`, to use the values from our own final experiments.
 
 The `generate_results.sh` bash scripts runs all analyses automatically, and stores their outputs in a dedicated `outputs` directory.
 
 #### Notes
 
-1. The `analyse_webke` and `map_webke_to_original_docids` script requires the predictions from the WebKE system to be available in a `webke-predictions` artifact in W&B. This can be downloaded from [our own W&B workspace](https://wandb.ai/gijshendriksen/information_extraction/artifacts/predictions/webke-predictions).   
+1. The `analyse_webke` and `map_webke_to_original_docids` script requires the predictions from the WebKE system to be available in a `webke-predictions` artifact in W&B. This can be downloaded from [our own W&B workspace](https://wandb.ai/REDACTED/information_extraction/artifacts/predictions/webke-predictions).   
 2. The `analyse_failures` script requires manual annotation. The `sample_failures` function samples a selection of failures from the model's outputs, and saves it in `failures.csv`. You must then copy this file to `failures_with_reasons.csv`, and add a `reason` column, in which you define the reason that each incorrect prediction was a failure. The `show_failure_types` function then takes this annotated file to summarize the failure types.
