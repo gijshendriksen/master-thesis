@@ -2,6 +2,8 @@
 
 This repository contains the source code used for the experiments in the paper "An Analysis of Information Extraction Models and Their Evaluation".
 
+To protect the anonymity of the double-blind review process, we redacted the link to our Weights & Biases workspace. However, the results of our experiments (as published in our W&B workspace) are contained in a dedicated `results` directory in this anonymous repository. The original W&B workspace will be published along this work, and contains additional data products besides these results, such as (preprocessed) datasets and data splits.
+
 ## Overview
 
 This repository consists of the following parts:

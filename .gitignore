@@ -8,7 +8,6 @@ wandb/
 /notebooks/
 
 _legacy_*.py
-*.csv
 *.png
 *.eps
 *.txt
